@@ -183,7 +183,7 @@ function drawPad() {
   const g = pctx; g.clearRect(0, 0, P, P);
   g.fillStyle = '#12161a'; g.fillRect(0, 0, P, P);
   g.fillStyle = 'rgba(229,83,75,0.07)'; g.fillRect(0, C, P, P - C);
-  if (S === SETS.v55) {
+  if (S.vRun) {                        // v5.5 and v5.6.3 (walk + run); v3 has no running envelope
     band(0.3, S.vWalk, 'rgba(76,195,138,0.20)');
     band(S.vWalk, S.vRun, 'rgba(227,163,59,0.12)');
     band(S.vRun, S.vmax, 'rgba(90,169,230,0.18)');
