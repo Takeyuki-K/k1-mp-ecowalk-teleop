@@ -2,7 +2,7 @@
 
 [k1-mp-ecowalk-public](https://github.com/Takeyuki-K/k1-mp-ecowalk-public) の**学習済み歩行ポリシー**を MuJoCo 上で ROS 2 から動かし、rosbridge 経由のブラウザ UI から速度指令を出すパッケージ。
 
-- 既定ポリシー `policy_set:=v56`（**v5.6.3** = k1-mp-ecowalk-public のブランチ `v5.6.3`、`k1_mp_gait56/`：左右対称の歩行・走行、その場旋回、停止1秒後の足揃え、厳密な静止摩擦、走行旋回の自動減速 v·|ω| ≤ 2.5 m/s²）。`policy_set:=v55` で v5.5（`k1_mp_gait55/`）: 歩行 ⇄ 走行の自動切替 + 歩行/走行中の旋回 + その場旋回 + 旋回時の自動減速 + 急停止
+- 既定ポリシー `policy_set:=v56`（**v5.6.3** = k1-mp-ecowalk-public の main / ブランチ `v5.6.3`、`k1_mp_gait56/`：左右対称の歩行・走行、その場旋回、停止1秒後の足揃え、厳密な静止摩擦、走行旋回の自動減速 v·|ω| ≤ 2.5 m/s²）。`policy_set:=v55` で v5.5（`k1_mp_gait55/`）: 歩行 ⇄ 走行の自動切替 + 歩行/走行中の旋回 + その場旋回 + 旋回時の自動減速 + 急停止
 - `policy_set:=v3`: 旧 v3 歩行旋回ポリシー（`k1_mp_turn/`、1.35 m/s まで）
 - **再実装なし**: 学習時の環境クラス（v5.5 は `K1Walk3Batch` / `K1Run4Batch` とゲートマネージャ `gait55.py`）を n=1 でそのまま使用
 - 学習範囲外の指令は黙って通さず、`/k1/status` と UI に明示
@@ -52,8 +52,7 @@ browser (index.html + roslib) ──ws:9090── rosbridge ── /cmd_vel ─�
 ```bash
 git clone https://github.com/Takeyuki-K/k1-mp-ecowalk-teleop.git ~/k1-mp-ecowalk-teleop   # private: GitHub の認証が必要
 cd ~/k1-mp-ecowalk-teleop/k1_ecowalk_ros
-docker build --build-arg ECOWALK_REF=v5.6.3 \
-  -f docker/Dockerfile -t k1-ecowalk:jazzy .                 # 初回 10〜20 分（PyTorch CPU 版のダウンロード）
+docker build -f docker/Dockerfile -t k1-ecowalk:jazzy .     # 初回 10〜20 分（PyTorch CPU 版のダウンロード）
 ./docker/run.sh                                              # → ブラウザで http://localhost:8080
 ```
 
@@ -61,15 +60,19 @@ docker build --build-arg ECOWALK_REF=v5.6.3 \
 
 イメージには k1-mp-ecowalk-public が `/opt/k1-mp-ecowalk-public` に clone されて焼き込まれる。どのブランチ・タグを使うかは `--build-arg ECOWALK_REF=<ブランチ or タグ>` で指定する（省略時は `main`）。
 
+```bash
+docker build --build-arg ECOWALK_REF=v5.6.3 -f docker/Dockerfile -t k1-ecowalk:jazzy .
+```
+
 | `ECOWALK_REF` | 含まれるポリシー | 対応する `policy_set` |
 |---|---|---|
-| `v5.6.3`（推奨。`v5.6.2` / `v5.6.1` も可） | `k1_mp_gait56/` | `v56`（既定） |
+| `main`（既定）/ `v5.6.3` | `k1_mp_gait56/`（2026-10-08 以降の main = v5.6.3） | `v56`（既定） |
+| `v5.6.2` / `v5.6.1` | `k1_mp_gait56/`（旧版） | `v56` |
 | `v5.5-turn-run` | `k1_mp_gait55/` | `v55` |
-| `main` | gait56 を含まない場合がある | — |
 
-- 既定の `policy_set:=v56` は `k1_mp_gait56/` を必要とする。無いイメージで起動すると `FileNotFoundError: k1_mp_gait56 not found under /opt/k1-mp-ecowalk-public` で `k1_sim` が落ちる。その場合は `ECOWALK_REF=v5.6.3` で作り直す
+- **注意: Docker のキャッシュ**。`ECOWALK_REF=main` のまま再ビルドしても、clone の行は前回のキャッシュが使われ、public 側の main の更新は入らない。最新の main を取り込むときは `--no-cache`、またはブランチ・タグを明示する（`ECOWALK_REF` の値が変われば clone 以降の層だけ作り直される）
+- 古い main が入ったイメージで既定の `policy_set:=v56` を起動すると `FileNotFoundError: k1_mp_gait56 not found under /opt/k1-mp-ecowalk-public` で `k1_sim` が落ちる。上記のどちらかで作り直す
 - イメージ名は `run.sh` の既定 `k1-ecowalk:jazzy` に合わせる（別名にしたら `IMAGE=<名前> ./docker/run.sh`）
-- `ECOWALK_REF` を変えると clone 以降の層だけ再ビルドされる（`--no-cache` 不要）
 - 再ビルドせずに切り替える: ホストのクローンで `git checkout <ブランチ>` してから `ECOWALK_DIR=~/k1-mp-ecowalk-public ./docker/run.sh`（ホストのクローンがイメージ内のものより優先される）
 - ベース: 公式 `osrf/ros:jazzy-desktop`（Ubuntu 24.04、Python 3.12）。numpy は apt の 1.26 のまま、MuJoCo と CPU 版 PyTorch は venv（`/opt/k1venv`、system site-packages 参照）に入れる
 - `docker build` の最後で REPORT_TURN.md の数値と照合するテストが走る。ここで失敗したらイメージは作られない
@@ -82,7 +85,7 @@ docker build --build-arg ECOWALK_REF=v5.6.3 \
 
 ```bash
 sudo apt install ros-jazzy-rosbridge-server ros-jazzy-robot-state-publisher ros-jazzy-rviz2
-git clone -b v5.6.3 https://github.com/Takeyuki-K/k1-mp-ecowalk-public.git ~/k1-mp-ecowalk-public
+git clone https://github.com/Takeyuki-K/k1-mp-ecowalk-public.git ~/k1-mp-ecowalk-public
 mkdir -p ~/k1_ecowalk_ws/src
 git clone https://github.com/Takeyuki-K/k1-mp-ecowalk-teleop.git ~/k1_ecowalk_ws/src/k1-mp-ecowalk-teleop
 
