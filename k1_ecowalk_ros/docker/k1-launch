@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# default container command: start the sim + rosbridge + browser UI. Extra args go to ros2 launch,
+# e.g.  k1-launch viewer:=false   or   k1-launch policy_set:=v3 rviz:=true
+set -e
+source /opt/ros/jazzy/setup.bash
+source /ws/install/setup.bash
+export PATH=/opt/k1venv/bin:$PATH
+if [ -z "$DISPLAY" ] && [[ "$*" != *viewer:=* ]]; then
+  echo "[k1-launch] no DISPLAY: starting without the MuJoCo viewer (browser UI still works)"
+  set -- viewer:=false "$@"
+fi
+echo "[k1-launch] open http://localhost:8080 in your browser"
+exec ros2 launch k1_ecowalk_ros teleop_sim.launch.py ecowalk_root:=${ECOWALK_ROOT} "$@"

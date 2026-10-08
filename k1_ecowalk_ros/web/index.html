@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>K1 EcoWalk Teleop</title>
+<!-- roslib 1.4.1 vendored (BSD, see roslib.LICENSE): works on offline / factory networks -->
+<script src="roslib.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1214; --panel: #171b1e; --line: #2a3035; --text: #e6e9eb; --muted: #8a949b;
+    --ok: #4cc38a; --warn: #e3a33b; --bad: #e5534b; --accent: #5aa9e6; --ref: #b48ef0; --run: #5aa9e6;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .02em; }
+  header input { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: 13px var(--mono); width: 210px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; }
+  .dot.on { background: var(--ok); }
+  #policy { font: 12px var(--mono); color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 16px; padding: 16px; max-width: 1100px; margin: 0 auto; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  h2 { font-size: 12px; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  #pad { width: 100%; aspect-ratio: 1; touch-action: none; cursor: crosshair; display: block; border-radius: 8px; }
+  .row { display: flex; gap: 8px; margin-top: 12px; }
+  button { flex: 1; padding: 12px 8px; border-radius: 8px; border: 1px solid var(--line); background: #20262a; color: var(--text); font: 600 14px system-ui; cursor: pointer; }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .35; cursor: default; }
+  #btnStop { background: #2e2a1a; border-color: #5c4f27; color: #f2d79b; }
+  #btnBrake { background: #3a1d1b; border-color: #6b2b27; color: #ffb4ae; }
+  #btnStart { background: #17321f; border-color: #2a5c3a; color: #a8e6bf; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .m { background: #12161a; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .m .k { font-size: 11px; color: var(--muted); }
+  .m .v { font: 600 18px var(--mono); }
+  .m .s { font: 12px var(--mono); color: var(--muted); }
+  #state { font: 600 13px var(--mono); padding: 4px 10px; border-radius: 999px; background: #20262a; }
+  #warn { min-height: 22px; margin-top: 10px; font-size: 13px; color: var(--warn); }
+  canvas.plot { width: 100%; height: 120px; display: block; margin-top: 8px; }
+  .legend { font-size: 12px; color: var(--muted); display: flex; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 4px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>K1 EcoWalk Teleop</h1>
+  <span class="dot" id="conn"></span>
+  <input id="url" spellcheck="false">
+  <span id="state">—</span>
+  <span id="policy"></span>
+</header>
+<main>
+  <section>
+    <h2>速度指令 (縦: 前進 v / 横: 旋回 ω) — ドラッグで操作、離すと 0</h2>
+    <canvas id="pad" width="600" height="600"></canvas>
+    <div class="row">
+      <button id="btnStart">Start</button>
+      <button id="btnStop">Safe Stop</button>
+      <button id="btnBrake">急停止</button>
+      <button id="btnReset">Reset</button>
+    </div>
+    <div id="warn"></div>
+    <div class="hint" id="legendPad"></div>
+    <div class="hint">
+      <kbd>W</kbd>/<kbd>S</kbd> 速度 ± &nbsp; <kbd>A</kbd>/<kbd>D</kbd> 旋回 ±0.1 &nbsp; <kbd>Space</kbd> 指令0 &nbsp;
+      <kbd>Esc</kbd> Safe Stop &nbsp; <kbd>B</kbd> 急停止
+    </div>
+  </section>
+  <section>
+    <h2>状態</h2>
+    <div class="grid">
+      <div class="m"><div class="k">v 指令 → 調速後 / 参照</div><div class="v" id="v_cmd">–</div><div class="s" id="v_ref">ref –</div></div>
+      <div class="m"><div class="k">v 実測 [m/s]</div><div class="v" id="v_meas">–</div><div class="s" id="v_err">–</div></div>
+      <div class="m"><div class="k">ω 指令 / 実測 [rad/s]</div><div class="v" id="w_cmd">–</div><div class="s" id="w_meas">meas –</div></div>
+      <div class="m"><div class="k">脚 電気パワー推定</div><div class="v" id="p_leg">–</div><div class="s" id="sat">Σ τ²/Km² + Σ max(τω,0)</div></div>
+      <div class="m"><div class="k">体の傾き 実測 / 目標 (旋回内側)</div><div class="v" id="lean">–</div><div class="s" id="kp">Kp –</div></div>
+      <div class="m"><div class="k">足裏力 [BW]</div><div class="v" id="ff">–</div><div class="s" id="alpha">α –</div></div>
+    </div>
+    <canvas class="plot" id="plotV" width="1200" height="240"></canvas>
+    <div class="legend"><span><i style="background:var(--accent)"></i>v 実測</span><span><i style="background:var(--ref)"></i>v 参照</span><span><i style="background:var(--muted)"></i>v 指令</span></div>
+    <canvas class="plot" id="plotW" width="1200" height="240"></canvas>
+    <div class="legend"><span><i style="background:var(--ok)"></i>ω 実測 (0.3 s 平均)</span><span><i style="background:var(--ref)"></i>ω 参照</span><span><i style="background:var(--warn)"></i>傾き実測 [deg/20]</span></div>
+    <div class="hint" id="pose">–</div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// command envelopes of the two policy sets (must match sim_core*.py)
+const SETS = {
+  v3:  { vmax: 1.35, wmax: 1.0, brake: false, gamma: 1.0,
+         zones: v => v >= 0.3 && v <= 1.0 ? 'walk' : (v > 1.0 && v <= 1.35 ? 'walkStraight' : null),
+         ticks: [0.3, 0.6, 1.0, 1.35] },
+  v55: { vmax: 5.0, wmax: 1.0, brake: true, gamma: 1.7, aLatWalk: 1.0, aLatRun: 3.0, vWalk: 1.65, vRun: 1.8,
+         ticks: [0.3, 1.0, 1.65, 2.5, 3.5, 5.0] },
+  v563: { vmax: 5.0, wmax: 1.0, brake: true, gamma: 1.7, aLatWalk: 1.0, aLatRun: 2.5, vWalk: 1.65, vRun: 1.8,
+          ticks: [0.3, 1.0, 1.65, 2.5, 3.5, 5.0] },
+};
+let S = SETS.v563;
+
+// ---------------- rosbridge ----------------
+const params = new URLSearchParams(location.search);
+$('url').value = params.get('ws') || `ws://${location.hostname || 'localhost'}:9090`;
+let ros, cmdTopic, srv = {};
+function connect() {
+  if (ros) ros.close();
+  ros = new ROSLIB.Ros({ url: $('url').value });
+  ros.on('connection', () => $('conn').classList.add('on'));
+  ros.on('close', () => { $('conn').classList.remove('on'); setTimeout(connect, 2000); });
+  ros.on('error', () => $('conn').classList.remove('on'));
+  cmdTopic = new ROSLIB.Topic({ ros, name: '/cmd_vel', messageType: 'geometry_msgs/msg/Twist', queue_size: 1 });
+  for (const n of ['start', 'stop', 'brake', 'reset'])
+    srv[n] = new ROSLIB.Service({ ros, name: `/k1/${n}`, serviceType: 'std_srvs/srv/Trigger' });
+  new ROSLIB.Topic({ ros, name: '/k1/status', messageType: 'std_msgs/msg/String', throttle_rate: 100 })
+    .subscribe(m => onStatus(JSON.parse(m.data)));
+}
+$('url').addEventListener('change', connect);
+connect();
+
+function call(n) { srv[n] && srv[n].callService({}, r => { if (!r.success) showWarn(r.message); }); }
+$('btnStart').onclick = () => call('start');
+$('btnStop').onclick = () => { setCmd(0, 0); call('stop'); };
+$('btnBrake').onclick = () => { setCmd(0, 0); call('brake'); };
+$('btnReset').onclick = () => { setCmd(0, 0); call('reset'); };
+
+// ---------------- command ----------------
+let cmd = { v: 0, w: 0 }, active = false, zeroBurst = 0;
+function setCmd(v, w) {
+  cmd.v = Math.max(0, Math.min(S.vmax, v));
+  cmd.w = Math.max(-S.wmax, Math.min(S.wmax, w));
+  if (cmd.v < 0.01) cmd.v = 0;
+  if (Math.abs(cmd.w) < 0.01) cmd.w = 0;
+  if (cmd.v === 0 && cmd.w === 0) zeroBurst = 3;
+  drawPad();
+}
+setInterval(() => {
+  if (!cmdTopic) return;
+  const holding = active || cmd.v !== 0 || cmd.w !== 0;
+  if (holding || zeroBurst > 0) {
+    cmdTopic.publish({ linear: { x: cmd.v, y: 0, z: 0 }, angular: { x: 0, y: 0, z: cmd.w } });
+    if (!holding) zeroBurst--;
+  }
+}, 100);
+
+// what the robot will actually do with (v, w): v5.5 speed governor (turnphys.py)
+function governed(v, w) {
+  if (!S.aLatRun || w === 0) return v;
+  const aw = Math.abs(w);
+  const vr = Math.min(v, S.aLatRun / aw);
+  return vr >= S.vRun ? vr : Math.min(v, S.vWalk, S.aLatWalk / aw);
+}
+
+// ---------------- pad ----------------
+const pad = $('pad'), pctx = pad.getContext('2d');
+const P = 600, C = P / 2, R = P / 2 - 24;
+// vertical axis is non-linear (gamma) so that walking speeds stay controllable next to 5 m/s running
+const vToU = v => Math.pow(v / S.vmax, 1 / S.gamma);
+const uToV = u => S.vmax * Math.pow(Math.max(0, u), S.gamma);
+const toPx = (v, w) => [C - (w / S.wmax) * R, C - vToU(v) * R];
+function band(v0, v1, color) {
+  const [, y0] = toPx(v0, 0), [, y1] = toPx(v1, 0);
+  pctx.fillStyle = color; pctx.fillRect(C - R, y1, 2 * R, y0 - y1);
+}
+function curve(aLat, color) {             // v * |w| = aLat
+  const g = pctx; g.strokeStyle = color; g.lineWidth = 2; g.setLineDash([8, 6]);
+  for (const sg of [1, -1]) {
+    g.beginPath(); let first = true;
+    for (let v = S.vmax; v >= aLat / S.wmax - 1e-6; v -= 0.02) {
+      const [x, y] = toPx(v, sg * aLat / v);
+      first ? g.moveTo(x, y) : g.lineTo(x, y); first = false;
+    }
+    g.stroke();
+  }
+  g.setLineDash([]);
+}
+function drawPad() {
+  const g = pctx; g.clearRect(0, 0, P, P);
+  g.fillStyle = '#12161a'; g.fillRect(0, 0, P, P);
+  g.fillStyle = 'rgba(229,83,75,0.07)'; g.fillRect(0, C, P, P - C);
+  if (S === SETS.v55) {
+    band(0.3, S.vWalk, 'rgba(76,195,138,0.20)');
+    band(S.vWalk, S.vRun, 'rgba(227,163,59,0.12)');
+    band(S.vRun, S.vmax, 'rgba(90,169,230,0.18)');
+    curve(S.aLatRun, css('--run')); curve(S.aLatWalk, css('--ok'));
+    $('legendPad').innerHTML = '緑 = 歩行 / 青 = 走行 (1.8 m/s 以上で自動切替) / 破線の外側 = 旋回のため自動で減速 (v·|ω| ≤ ' + S.aLatRun.toFixed(1) + ', 歩行は ≤ 1.0)';
+  } else {
+    band(0.3, 1.0, 'rgba(76,195,138,0.22)'); band(1.0, 1.35, 'rgba(227,163,59,0.16)');
+    $('legendPad').textContent = '緑 = 学習済み (旋回は v ≤ 1.0) / 黄 = 直進のみ学習済み';
+  }
+  g.strokeStyle = css('--ok'); g.lineWidth = 6;
+  let a = toPx(0, S.wmax), b = toPx(0, -S.wmax); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+  g.fillStyle = css('--muted'); g.font = '18px ' + css('--mono'); g.textAlign = 'left';
+  for (const v of S.ticks) { const [, y] = toPx(v, 0); g.fillRect(C - 6, y, 12, 1); g.fillText(v.toFixed(2), C + 10, y + 6); }
+  g.textAlign = 'center';
+  g.fillText('← 左旋回 ω+', 90, C + 30); g.fillText('右旋回 ω− →', P - 90, C + 30);
+  g.fillText('後退: 未学習', C, P - 20);
+  // command (hollow) and governed result (filled)
+  const [mx, my] = toPx(cmd.v, cmd.w), vg = governed(cmd.v, cmd.w), [gx, gy] = toPx(vg, cmd.w);
+  g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(C, C); g.lineTo(mx, my); g.stroke();
+  if (Math.abs(vg - cmd.v) > 0.02) {
+    g.strokeStyle = css('--warn'); g.beginPath(); g.arc(mx, my, 14, 0, 7); g.stroke();
+    g.beginPath(); g.moveTo(mx, my); g.lineTo(gx, gy); g.stroke();
+  }
+  g.fillStyle = cmd.v > 0 && cmd.v < 0.3 ? css('--warn') : (vg >= 1.8 ? css('--run') : css('--ok'));
+  g.beginPath(); g.arc(gx, gy, 16, 0, 7); g.fill();
+}
+function padEvt(e) {
+  const r = pad.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * P, y = (e.clientY - r.top) / r.height * P;
+  setCmd(uToV((C - y) / R), (C - x) / R * S.wmax);
+}
+pad.addEventListener('pointerdown', e => { active = true; pad.setPointerCapture(e.pointerId); padEvt(e); });
+pad.addEventListener('pointermove', e => { if (active) padEvt(e); });
+const release = () => { if (active) { active = false; setCmd(0, 0); } };
+pad.addEventListener('pointerup', release); pad.addEventListener('pointercancel', release);
+
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase(), dv = cmd.v >= 1.65 ? 0.25 : 0.1;
+  if (k === 'w' || k === 'arrowup') setCmd(cmd.v + dv, cmd.w);
+  else if (k === 's' || k === 'arrowdown') setCmd(cmd.v - dv, cmd.w);
+  else if (k === 'a' || k === 'arrowleft') setCmd(cmd.v, cmd.w + 0.1);
+  else if (k === 'd' || k === 'arrowright') setCmd(cmd.v, cmd.w - 0.1);
+  else if (k === ' ') setCmd(0, 0);
+  else if (k === 'escape') { setCmd(0, 0); call('stop'); }
+  else if (k === 'b') { setCmd(0, 0); call('brake'); }
+  else return;
+  e.preventDefault();
+});
+
+// ---------------- status ----------------
+const hist = [], HN = 300;
+const WARN_TXT = {
+  backward_not_trained: '後退は未学習のため 0 に制限',
+  'v_clamped_1.35': '速度を学習上限 1.35 m/s に制限', 'v_clamped_5.0': '速度を 5.0 m/s に制限',
+  'w_clamped_1.0': '旋回を学習上限 1.0 rad/s に制限',
+  'v_below_trained_0.30': '0 < v < 0.30 は学習分布外 (ランプ中のみ経験)',
+  'turn_above_trained_1.0mps': 'v > 1.0 での旋回は学習分布外',
+  lateral_not_trained: '横移動 (linear.y) は未学習のため無視',
+  governor_slows_for_turn: '旋回が急なため自動で減速中 (学習済みの動作)',
+};
+const MODE_TXT = { stand: ['直立', '--text'], walk: ['歩行', '--ok'], run: ['走行', '--run'], brake: ['急停止中', '--bad'], restance: ['足を揃え中', '--ok'], fallen: ['転倒 → Reset', '--bad'] };
+function showWarn(t) { $('warn').textContent = t; }
+function onStatus(s) {
+  const set = s.policy === 'v5.6.3' ? SETS.v563 : ((s.policy === 'v5.5' || s.policy === 'v5.6') ? SETS.v55 : SETS.v3);
+  if (set !== S) { S = set; drawPad(); }
+  $('policy').textContent = s.policy || 'v3';
+  $('btnBrake').disabled = !S.brake;
+  const st = $('state');
+  let mode = s.mode || (s.fallen ? 'fallen' : (s.walking ? 'walk' : 'stand'));
+  if (mode === 'walk' && s.v_ref < 0.05) mode = Math.abs(s.w_ref) > 0.05 ? 'walk' : 'walk';
+  const [txt, col] = MODE_TXT[mode] || [mode, '--text'];
+  st.textContent = mode === 'walk' && s.v_ref < 0.05 ? (Math.abs(s.w_ref) > 0.05 ? 'その場旋回' : '足踏み') : txt;
+  st.style.color = css(col);
+  $('v_cmd').textContent = s.v_gov !== undefined && Math.abs(s.v_gov - s.v_cmd) > 0.02 ? `${s.v_cmd.toFixed(2)}→${s.v_gov.toFixed(2)}` : s.v_cmd.toFixed(2);
+  $('v_ref').textContent = `ref ${s.v_ref.toFixed(2)}`;
+  $('v_meas').textContent = s.v_meas.toFixed(2);
+  $('v_err').textContent = s.v_ref > 0.25 ? `誤差 ${(100 * (s.v_meas - s.v_ref) / s.v_ref).toFixed(0)}%` : '–';
+  $('w_cmd').textContent = s.w_cmd.toFixed(2);
+  $('w_meas').textContent = `meas ${s.w_meas.toFixed(2)}  ref ${s.w_ref.toFixed(2)}`;
+  $('p_leg').textContent = `${s.p_leg_w.toFixed(0)} W`;
+  $('sat').textContent = s.tau_sat !== undefined && mode !== 'walk' ? `脚モーター飽和 ${(100 * s.tau_sat).toFixed(0)}% の時間` : 'Σ τ²/Km² + Σ max(τω,0)';
+  $('lean').textContent = s.lean_deg !== undefined ? `${s.lean_deg.toFixed(1)}°` : '–';
+  $('kp').textContent = s.lean_target_deg !== undefined ? `目標 ${s.lean_target_deg.toFixed(1)}°  Kp ${s.kp_scale.toFixed(2)}` : `Kp ${s.kp_scale.toFixed(2)}`;
+  $('ff').textContent = s.foot_force_bw.toFixed(2);
+  $('alpha').textContent = `α ${s.alpha.toFixed(2)}  phase ${s.phase.toFixed(2)}`;
+  $('pose').textContent = `t=${s.t.toFixed(1)}s  x=${s.x.toFixed(2)} y=${s.y.toFixed(2)} yaw=${s.yaw.toFixed(2)} z=${s.z.toFixed(3)}` +
+    (s.last_switch ? `  最後の切替: ${s.last_switch}` : '');
+  showWarn(s.envelope.map(k => WARN_TXT[k] || k).join(' / '));
+  hist.push(s); if (hist.length > HN) hist.shift();
+  plot($('plotV'), [['v_meas', '--accent'], ['v_ref', '--ref'], ['v_cmd', '--muted']], 0, S === SETS.v55 ? 5 : 1.5);
+  plot($('plotW'), [['w_meas', '--ok'], ['w_ref', '--ref'], [h => (h.lean_deg || 0) / 20, '--warn']], -1, 1);
+}
+function plot(cv, series, lo, hi) {
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H); g.fillStyle = '#12161a'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = '#2a3035'; g.lineWidth = 1;
+  for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(0, H * i / 4); g.lineTo(W, H * i / 4); g.stroke(); }
+  g.fillStyle = css('--muted'); g.font = '20px ' + css('--mono');
+  g.fillText(hi, 6, 22); g.fillText(lo, 6, H - 8);
+  for (const [key, col] of series) {
+    const f = typeof key === 'function' ? key : h => h[key];
+    g.strokeStyle = css(col); g.lineWidth = 3; g.beginPath();
+    hist.forEach((h, i) => {
+      const x = W * i / (HN - 1), y = H - (Math.min(hi, Math.max(lo, f(h))) - lo) / (hi - lo) * H;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    });
+    g.stroke();
+  }
+}
+drawPad();
+</script>
+</body>
+</html>
