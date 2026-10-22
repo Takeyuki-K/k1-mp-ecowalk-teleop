@@ -6,7 +6,8 @@
 FROM osrf/ros:jazzy-desktop
 
 ARG ECOWALK_REPO=https://github.com/Takeyuki-K/k1-mp-ecowalk-public.git
-ARG ECOWALK_REF=main
+# pinned to the v5.6.3 tag (Zenodo DOI 10.5281/zenodo.23549025) so a given teleop release always builds the same policies
+ARG ECOWALK_REF=v5.6.3
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,7 +25,14 @@ RUN python3 -m venv --system-site-packages /opt/k1venv \
     && /opt/k1venv/bin/python -c "import numpy, mujoco, torch; print('numpy', numpy.__version__, 'mujoco', mujoco.__version__, 'torch', torch.__version__)"
 
 # trained policies and environments (mount your own clone over it with run.sh ECOWALK_DIR=...)
-RUN git clone --depth 1 --branch ${ECOWALK_REF} ${ECOWALK_REPO} /opt/k1-mp-ecowalk-public
+# A tag wins over a branch of the same name (public has both a v5.6.3 tag and a v5.6.3 branch;
+# `git clone --branch` would pick the branch, which can move). Falls back to a branch name.
+RUN git init -q /opt/k1-mp-ecowalk-public && cd /opt/k1-mp-ecowalk-public \
+    && git remote add origin ${ECOWALK_REPO} \
+    && (git fetch -q --depth 1 origin "refs/tags/${ECOWALK_REF}" \
+        || git fetch -q --depth 1 origin "refs/heads/${ECOWALK_REF}") \
+    && git -c advice.detachedHead=false checkout -q FETCH_HEAD \
+    && echo "k1-mp-ecowalk-public ${ECOWALK_REF}: $(git log -1 --format='%h %s')"
 ENV ECOWALK_ROOT=/opt/k1-mp-ecowalk-public
 
 # ROS 2 package, built with the venv python so the node's shebang points to the venv
