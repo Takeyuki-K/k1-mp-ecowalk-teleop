@@ -2,7 +2,9 @@
 
 ROS 2 (Jazzy) teleoperation of the **K1 MP Eco-Walk** policies in MuJoCo, with a browser UI over rosbridge.
 The policies, environments and gait manager come from
-[k1-mp-ecowalk-public](https://github.com/Takeyuki-K/k1-mp-ecowalk-public) (default: its `main`, v5.6.3).
+[k1-mp-ecowalk-public](https://github.com/Takeyuki-K/k1-mp-ecowalk-public), pinned to its tag **v5.6.3**
+([10.5281/zenodo.23549025](https://doi.org/10.5281/zenodo.23549025)). Limitations of the walking policies themselves
+are in that repository's README (Limitations).
 
 > **Simulation only.** MuJoCo, not tested on a real robot. Independent personal research, not affiliated with or
 > endorsed by ROBOTIS.
@@ -14,6 +16,7 @@ The policies, environments and gait manager come from
 Quick start (details and Docker: [k1_ecowalk_ros/README.md](k1_ecowalk_ros/README.md)):
 ```bash
 git clone https://github.com/Takeyuki-K/k1-mp-ecowalk-public.git ~/k1-mp-ecowalk-public
+git -C ~/k1-mp-ecowalk-public checkout -q tags/v5.6.3   # the version this release was tested with
 mkdir -p ~/k1_ecowalk_ws/src && git clone https://github.com/Takeyuki-K/k1-mp-ecowalk-teleop.git ~/k1_ecowalk_ws/src/k1-mp-ecowalk-teleop
 cd ~/k1_ecowalk_ws && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install && source install/setup.bash
 ros2 launch k1_ecowalk_ros teleop_sim.launch.py          # browser: http://localhost:8080
